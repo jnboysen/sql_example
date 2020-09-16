@@ -1,0 +1,101 @@
+Investigate Relational Database - SQL CodeAuthor: Jacob Boysen/* QUESTION 1 */
+WITH film_rentals AS (
+  SELECT f.title AS film_title, fc.film_id, cat.name AS category, i.inventory_id,    r.rental_id AS rental_id, r.rental_date
+	FROM film AS f
+	LEFT JOIN film_category AS fc
+	ON fc.film_id=f.film_id
+	LEFT JOIN category AS cat
+	ON cat.category_id=fc.category_id
+	LEFT JOIN inventory AS i
+	ON f.film_id=i.film_id
+	LEFT JOIN rental AS r
+	ON r.inventory_id=i.inventory_id
+	WHERE rental_id IS NOT NULL
+	ORDER BY f.film_id)
+
+SELECT film_title,category, COUNT(*) AS rental_count
+FROM film_rentals AS fr
+WHERE category IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')
+GROUP BY 1,2
+ORDER BY 2,3 DESC;
+
+/* QUESTION 2:*/
+
+With data_prep AS (
+	SELECT f.title, fc.film_id, f.length, cat.name AS category, 
+	r.rental_id, r.rental_date, r.return_date, (r.return_date-r.rental_date) AS date_diff,
+	CASE WHEN cat.name IN ('Comedy','Music','Children','Animation','Family','Classic') THEN cat.name
+	ELSE 'Other' END AS modified_category
+	FROM film AS f
+	LEFT JOIN film_category AS fc
+	ON fc.film_id=f.film_id
+	LEFT JOIN category AS cat
+	ON cat.category_id=fc.category_id
+	LEFT JOIN inventory AS i
+	ON i.film_id=f.film_id
+	LEFT JOIN rental AS r
+	ON r.inventory_id=i.inventory_id)
+
+SELECT modified_category, quartile, ROUND((AVG(numeric_diff)/24),2)AS avg_rental_time
+FROM 
+	(SELECT title, modified_category, date_diff, CAST((EXTRACT(epoch FROM date_diff)/3600) AS INT) AS numeric_diff,
+	NTILE(4) OVER (PARTITION BY modified_category ORDER BY date_diff) AS quartile
+	FROM data_prep
+	ORDER BY 3)AS data_prep_step2
+GROUP BY 1,2
+ORDER BY 1,2;
+
+
+/* QUESTION 3 */
+
+WITH actor_rental_history AS (
+SELECT a.first_name, a.last_name, f.title, i.inventory_id, 
+	r.rental_id, r.rental_date, st.store_id, city.city
+	FROM actor AS a
+	LEFT JOIN film_actor AS fa
+	ON a.actor_id=fa.actor_id
+	LEFT JOIN film AS f
+	ON f.film_id = fa.film_id
+	LEFT JOIN inventory AS i
+	ON i.film_id = f.film_id
+	LEFT JOIN rental AS r
+	ON i.inventory_id = r.inventory_id
+	LEFT JOIN payment AS pay
+	ON r.customer_id=pay.customer_id
+	LEFT JOIN staff AS s
+	ON pay.staff_id=s.staff_id
+	LEFT JOIN store AS st
+	ON st.store_id=s.store_id
+	LEFT JOIN address AS ad
+	ON st.address_id=ad.address_id
+	LEFT JOIN city
+	ON ad.city_id=city.city_id )
+
+SELECT CONCAT(first_name,' ',last_name) AS actor_name, store_id, city, COUNT(*),
+RANK() OVER (PARTITION BY store_id ORDER BY COUNT(*) DESC) AS rental_rank
+FROM actor_rental_history
+WHERE store_id IS NOT NULL 
+GROUP BY 1,2,3
+ORDER BY 4 DESC
+LIMIT 30
+;
+
+/* QUESTION 4 */
+
+WITH rental_data AS ( 
+SELECT s.store_id, 
+		r.rental_id, 
+		r.rental_date,
+		DATE_TRUNC('month', r.rental_date) AS order_date,
+		DATE_PART('year', r.rental_date) AS year_part,
+		DATE_PART('month', r.rental_date) AS month_part
+FROM store AS s
+LEFT JOIN staff AS st
+ON st.store_id=s.store_id
+LEFT JOIN rental AS r
+ON r.staff_id = st.staff_id )
+
+SELECT year_part, month_part, store_id, COUNT(*)
+FROM rental_data
+GROUP BY year_part, month_part, store_id
+ORDER BY 1,2,4 DESC;
